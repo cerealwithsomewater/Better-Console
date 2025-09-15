@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Better Console Demo</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --muted: #94a3b8;
+      --text: #e5e7eb;
+      --accent: #2563eb;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --err: #ef4444;
+      --border: #1f2937;
+      --chip: #0b1220;
+    }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji;
+      background: linear-gradient(180deg, var(--bg), #0b1024 60%);
+      color: var(--text);
+    }
+    header {
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      backdrop-filter: blur(6px);
+      background: rgba(15, 23, 42, 0.75);
+    }
+    header h1 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0.4px;
+    }
+    .container { padding: 20px; max-width: 1100px; margin: 0 auto; }
+    .grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.02) inset;
+    }
+    .panel h2 { margin: 0 0 12px 0; font-size: 14px; color: var(--muted); font-weight: 600; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .row + .row { margin-top: 10px; }
+    label { font-size: 12px; color: var(--muted); }
+    select, input[type="text"], input[type="number"] {
+      background: #0b1220;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      outline: none;
+      min-width: 120px;
+    }
+    input[type="checkbox"] { width: 16px; height: 16px; }
+    button {
+      background: #16223d;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+    button:hover { border-color: #2a3b64; }
+    button.primary { background: #1b2d58; border-color: #28407a; }
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+    .chip { background: var(--chip); border:1px solid var(--border); color: var(--muted); border-radius: 9999px; padding: 4px 10px; font-size: 12px; }
+    .status { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .badge { border-radius: 9999px; padding: 4px 10px; font-size: 12px; border:1px solid var(--border); background: var(--chip); }
+    .badge.ok { color: var(--ok); }
+    .badge.warn { color: var(--warn); }
+    .badge.err { color: var(--err); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; border-bottom: 1px solid var(--border); padding: 8px; font-size: 12px; }
+    th { color: var(--muted); font-weight: 600; }
+    tbody tr:hover { background: #0b1220; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .row .fill { flex: 1; }
+  </style>
+  <script src="./better-console.js"></script>
+  <script>
+    // Helpers
+    function $(sel) { return document.querySelector(sel); }
+    function setText(el, text) { el.textContent = String(text); }
+    function bool(v) { return !!v; }
+    function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
+  </script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const levelSelect = $('#levelSelect');
+      const nsInput = $('#nsInput');
+      const colorsToggle = $('#colorsToggle');
+      const bufferSizeInput = $('#bufferSize');
+      const installedEl = $('#installed');
+      const curLevelEl = $('#curLevel');
+      const curNsEl = $('#curNs');
+      const curColorsEl = $('#curColors');
+      const curBufEl = $('#curBuf');
+      const autoRefreshToggle = $('#autoRefresh');
+      const bufferBody = $('#bufferBody');
+      const emitNs = $('#emitNs');
+      const emitMsg = $('#emitMsg');
+      const iconsToggle = $('#iconsToggle');
+      const timeToggle = $('#timeToggle');
+      const nsShowToggle = $('#nsShowToggle');
+      const bufFilterNs = $('#bufFilterNs');
+      const bufFilterLevel = $('#bufFilterLevel');
+      const bufCounts = $('#bufCounts');
+      const genToggle = $('#genToggle');
+      const genRate = $('#genRate');
+      const httpUrl = $('#httpUrl');
+      const httpBatch = $('#httpBatch');
+      const httpInterval = $('#httpInterval');
+      const httpEnable = $('#httpEnable');
+      let httpTransport = null;
+      let intervalId = null;
+      let genTimer = null;
+
+      function syncFromConfig() {
+        const cfg = BetterConsole.getConfig();
+        if (cfg && typeof cfg === 'object') {
+          levelSelect.value = cfg.level || 'debug';
+          nsInput.value = cfg.namespaces || '*';
+          colorsToggle.checked = !!cfg.enableColors;
+          bufferSizeInput.value = cfg.bufferSize || 500;
+          if (iconsToggle) iconsToggle.checked = !!cfg.showIcons;
+          if (timeToggle) timeToggle.checked = !!cfg.showTime;
+          if (nsShowToggle) nsShowToggle.checked = !!cfg.showNamespace;
+          setText(curLevelEl, cfg.level);
+          setText(curNsEl, cfg.namespaces || '*');
+          setText(curColorsEl, cfg.enableColors ? 'on' : 'off');
+          setText(curBufEl, cfg.bufferSize || 500);
+        }
+        setText(installedEl, BetterConsole.installed() ? 'installed' : 'restored');
+      }
+
+      function applyConfig() {
+        const cfg = {
+          level: levelSelect.value,
+          namespaces: nsInput.value.trim() || '*',
+          enableColors: !!colorsToggle.checked,
+          showIcons: !!(iconsToggle && iconsToggle.checked),
+          showTime: !!(timeToggle && timeToggle.checked),
+          showNamespace: !!(nsShowToggle && nsShowToggle.checked),
+          bufferSize: clamp(parseInt(bufferSizeInput.value, 10) || 500, 1, 10000),
+          autoInstall: true
+        };
+        BetterConsole.restore();
+        BetterConsole.install(cfg);
+        syncFromConfig();
+        console.info('Config applied', cfg);
+        refreshBuffer();
+      }
+
+      function reinstall() { applyConfig(); }
+      function restore() { BetterConsole.restore(); syncFromConfig(); console.warn('Console restored (wrappers removed)'); }
+
+      function saveLocal() {
+        try {
+          localStorage.setItem('betterConsole.level', levelSelect.value);
+          localStorage.setItem('betterConsole.namespaces', nsInput.value.trim() || '*');
+          localStorage.setItem('betterConsole.colors', colorsToggle.checked ? '1' : '0');
+          localStorage.setItem('betterConsole.bufferSize', String(clamp(parseInt(bufferSizeInput.value, 10) || 500, 1, 10000)));
+          localStorage.setItem('betterConsole.auto', '1');
+          if (iconsToggle) localStorage.setItem('betterConsole.icons', iconsToggle.checked ? '1' : '0');
+          if (timeToggle) localStorage.setItem('betterConsole.showTime', timeToggle.checked ? '1' : '0');
+          if (nsShowToggle) localStorage.setItem('betterConsole.showNamespace', nsShowToggle.checked ? '1' : '0');
+          console.info('Saved overrides to localStorage');
+        } catch (e) {
+          console.error('localStorage unavailable', e);
+        }
+      }
+
+      function clearLocal() {
+        try {
+          localStorage.removeItem('betterConsole.level');
+          localStorage.removeItem('betterConsole.namespaces');
+          localStorage.removeItem('betterConsole.colors');
+          localStorage.removeItem('betterConsole.bufferSize');
+          localStorage.removeItem('betterConsole.auto');
+          localStorage.removeItem('betterConsole.icons');
+          localStorage.removeItem('betterConsole.showTime');
+          localStorage.removeItem('betterConsole.showNamespace');
+          console.info('Cleared localStorage overrides');
+        } catch (e) {
+          console.error('localStorage unavailable', e);
+        }
+      }
+
+      function renderRow(entry) {
+        const tr = document.createElement('tr');
+        const tdTime = document.createElement('td');
+        const tdLevel = document.createElement('td');
+        const tdNs = document.createElement('td');
+        const tdPrev = document.createElement('td');
+        tdTime.textContent = new Date(entry.time).toLocaleTimeString();
+        tdLevel.textContent = entry.level.toUpperCase();
+        tdNs.textContent = entry.namespace;
+        tdPrev.textContent = entry.preview;
+        tdPrev.className = 'mono';
+        const cls = entry.level === 'error' ? 'badge err' : entry.level === 'warn' ? 'badge warn' : 'badge ok';
+        tdLevel.innerHTML = '<span class="' + cls + '">' + tdLevel.textContent + '</span>';
+        tr.appendChild(tdTime);
+        tr.appendChild(tdLevel);
+        tr.appendChild(tdNs);
+        tr.appendChild(tdPrev);
+        return tr;
+      }
+
+      function refreshBuffer() {
+        const data = BetterConsole.getBuffer();
+        const levelFilter = bufFilterLevel ? bufFilterLevel.value : 'all';
+        const nsQuery = bufFilterNs ? String(bufFilterNs.value || '').toLowerCase() : '';
+        bufferBody.innerHTML = '';
+        const counts = { trace: 0, debug: 0, log: 0, info: 0, warn: 0, error: 0 };
+        for (let i = 0; i < data.length; i++) {
+          const e = data[i];
+          if (counts[e.level] != null) counts[e.level]++;
+          if (levelFilter !== 'all' && e.level !== levelFilter) continue;
+          if (nsQuery && (!e.namespace || e.namespace.toLowerCase().indexOf(nsQuery) === -1)) continue;
+          bufferBody.appendChild(renderRow(e));
+        }
+        if (bufCounts) {
+          bufCounts.textContent = `trace ${counts.trace} · debug ${counts.debug} · log ${counts.log} · info ${counts.info} · warn ${counts.warn} · error ${counts.error}`;
+        }
+      }
+
+      function setAutoRefresh(on) {
+        if (intervalId) { clearInterval(intervalId); intervalId = null; }
+        if (on) { intervalId = setInterval(refreshBuffer, 1000); }
+      }
+
+      // Wire up controls
+      $('#applyBtn').addEventListener('click', applyConfig);
+      $('#reinstallBtn').addEventListener('click', reinstall);
+      $('#restoreBtn').addEventListener('click', restore);
+      $('#saveLocalBtn').addEventListener('click', saveLocal);
+      $('#clearLocalBtn').addEventListener('click', clearLocal);
+      $('#clearBufferBtn').addEventListener('click', function () { BetterConsole.clearBuffer(); refreshBuffer(); });
+      $('#clearConsoleBtn').addEventListener('click', function () { if (console.clear) console.clear(); });
+      $('#refreshBufferBtn').addEventListener('click', refreshBuffer);
+      autoRefreshToggle.addEventListener('change', function () { setAutoRefresh(this.checked); });
+      if (bufFilterLevel) bufFilterLevel.addEventListener('change', refreshBuffer);
+      if (bufFilterNs) bufFilterNs.addEventListener('input', refreshBuffer);
+
+      // Group and timer controls
+      const groupBtn = document.getElementById('groupBtn');
+      const groupCollapsedBtn = document.getElementById('groupCollapsedBtn');
+      const groupEndBtn = document.getElementById('groupEndBtn');
+      const timeStartBtn = document.getElementById('timeStartBtn');
+      const timeEndBtn = document.getElementById('timeEndBtn');
+      if (groupBtn) groupBtn.addEventListener('click', function () {
+        const ns = emitNs.value.trim() || 'demo:group';
+        const logger = BetterConsole.createLogger(ns);
+        logger.group('Group start', new Date().toLocaleTimeString());
+        logger.info('Inside group');
+      });
+      if (groupCollapsedBtn) groupCollapsedBtn.addEventListener('click', function () {
+        const ns = emitNs.value.trim() || 'demo:group';
+        const logger = BetterConsole.createLogger(ns);
+        logger.groupCollapsed('Collapsed group', new Date().toLocaleTimeString());
+        logger.debug('Inside collapsed group');
+      });
+      if (groupEndBtn) groupEndBtn.addEventListener('click', function () { console.groupEnd(); });
+      if (timeStartBtn) timeStartBtn.addEventListener('click', function () {
+        const ns = emitNs.value.trim() || 'demo:timer';
+        BetterConsole.createLogger(ns).time('demo');
+      });
+      if (timeEndBtn) timeEndBtn.addEventListener('click', function () {
+        const ns = emitNs.value.trim() || 'demo:timer';
+        BetterConsole.createLogger(ns).timeEnd('demo');
+        refreshBuffer();
+      });
+
+      // Traffic generator
+      function stopGen() { if (genTimer) { clearInterval(genTimer); genTimer = null; } }
+      function startGen() {
+        stopGen();
+        const rate = Math.max(1, parseInt(genRate.value, 10) || 5);
+        const perMs = Math.max(10, Math.floor(1000 / rate));
+        const levels = ['trace','debug','log','info','warn','error'];
+        const logger = BetterConsole.createLogger('demo:traffic');
+        genTimer = setInterval(function () {
+          const lvl = levels[Math.floor(Math.random() * levels.length)];
+          logger[lvl]('traffic event', { lvl, t: Date.now() });
+          refreshBuffer();
+        }, perMs);
+      }
+      if (genToggle) genToggle.addEventListener('change', function () { this.checked ? startGen() : stopGen(); });
+      if (genRate) genRate.addEventListener('change', function () { if (genToggle && genToggle.checked) startGen(); });
+
+      // Emit buttons for namespaced logger
+      function emitNsLevel(level) {
+        const ns = emitNs.value.trim() || 'demo';
+        const msg = emitMsg.value || 'Hello from demo';
+        const ctx = { page: location.pathname };
+        const logger = BetterConsole.createLogger(ns, { context: ctx });
+        logger[level](msg, { ns, level, time: new Date().toISOString() });
+        refreshBuffer();
+      }
+
+      ['trace','debug','log','info','warn','error'].forEach(function (lvl) {
+        $('#emitNs-' + lvl).addEventListener('click', function () { emitNsLevel(lvl); });
+        $('#emitGlobal-' + lvl).addEventListener('click', function () {
+          const msg = emitMsg.value || 'Hello from demo';
+          console[lvl](msg, { ns: 'global', level: lvl, time: new Date().toISOString() });
+          refreshBuffer();
+        });
+      });
+
+      // Initial population
+      syncFromConfig();
+      setAutoRefresh(true);
+      autoRefreshToggle.checked = true;
+      const hello = BetterConsole.createLogger('demo:init');
+      hello.info('Better Console demo ready');
+      // Advanced defaults for demo
+      BetterConsole.setNamespaceLevels({ 'demo:*': 'debug', 'demo:traffic': 'info' });
+      BetterConsole.setSampling({ 'demo:traffic': 0.5 });
+      BetterConsole.setRedactor(function (args, meta) {
+        return args.map(function (a) {
+          if (typeof a === 'string') return a.replace(/(token=)[^&\s]+/gi, '$1***');
+          return a;
+        });
+      });
+      BetterConsole.updateConfig({ captureStack: 'error' });
+      refreshBuffer();
+
+      // HTTP transport enable/disable
+      function applyHttpTransport() {
+        if (httpTransport) { BetterConsole.removeTransport(httpTransport); httpTransport = null; }
+        if (!httpEnable || !httpEnable.checked) return;
+        httpTransport = BetterConsole.createHttpTransport({
+          url: httpUrl.value.trim(),
+          batch: httpBatch.checked,
+          intervalMs: Math.max(250, parseInt(httpInterval.value, 10) || 2000)
+        });
+        BetterConsole.addTransport(httpTransport);
+      }
+      if (httpEnable) {
+        httpEnable.addEventListener('change', applyHttpTransport);
+        if (httpUrl) httpUrl.addEventListener('change', applyHttpTransport);
+        if (httpBatch) httpBatch.addEventListener('change', applyHttpTransport);
+        if (httpInterval) httpInterval.addEventListener('change', applyHttpTransport);
+      }
+
+      // Copy / Download buffer
+      const copyBtn = document.getElementById('copyBufferBtn');
+      const downloadBtn = document.getElementById('downloadBufferBtn');
+      if (copyBtn) copyBtn.addEventListener('click', function () {
+        try {
+          const data = BetterConsole.getBuffer();
+          const text = JSON.stringify(data, null, 2);
+          navigator.clipboard.writeText(text).then(function () {
+            console.info('Buffer copied to clipboard');
+          }).catch(function () {
+            console.warn('Clipboard write failed');
+          });
+        } catch (e) { console.error('Copy failed', e); }
+      });
+      if (downloadBtn) downloadBtn.addEventListener('click', function () {
+        try {
+          const data = BetterConsole.getBuffer();
+          const text = JSON.stringify(data, null, 2);
+          const blob = new Blob([text], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'better-console-buffer.json';
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 0);
+        } catch (e) { console.error('Download failed', e); }
+      });
+
+      // Advanced control wiring
+      const pauseBtn = document.getElementById('pauseBtn');
+      const resumeBtn = document.getElementById('resumeBtn');
+      const onceBtn = document.getElementById('onceBtn');
+      const assertBtn = document.getElementById('assertBtn');
+      const tableBtn = document.getElementById('tableBtn');
+      const importBufInput = document.getElementById('importBufInput');
+      const exportBufBtn = document.getElementById('exportBufBtn');
+      if (pauseBtn) pauseBtn.addEventListener('click', function () { BetterConsole.pause(); console.warn('Paused output'); });
+      if (resumeBtn) resumeBtn.addEventListener('click', function () { BetterConsole.resume(); console.info('Resumed output'); });
+      if (onceBtn) onceBtn.addEventListener('click', function () { BetterConsole.createLogger('demo:once').once('hello', 'This prints once'); refreshBuffer(); });
+      if (assertBtn) assertBtn.addEventListener('click', function () { console.assert(false, 'assert fired'); refreshBuffer(); });
+      if (tableBtn) tableBtn.addEventListener('click', function () { console.table([{ a: 1, b: 2 }, { a: 3, b: 4 }]); refreshBuffer(); });
+      if (exportBufBtn) exportBufBtn.addEventListener('click', function () {
+        try {
+          const text = BetterConsole.exportBuffer();
+          const blob = new Blob([text], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'better-console-export.json';
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 0);
+        } catch (e) { console.error('Export failed', e); }
+      });
+      if (importBufInput) importBufInput.addEventListener('change', function (e) {
+        const f = e.target.files && e.target.files[0];
+        if (!f) return;
+        const reader = new FileReader();
+        reader.onload = function () {
+          try { BetterConsole.importBuffer(String(reader.result), { append: true }); refreshBuffer(); console.info('Buffer imported'); } catch (err) { console.error('Import failed', err); }
+        };
+        reader.readAsText(f);
+      });
+    });
+  </script>
+  <meta name="color-scheme" content="dark light">
+  <meta name="description" content="Interactive demo for Better Console">
+  <meta name="robots" content="noindex">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="icon" href="data:,">
+  <style>
+    .controls-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+    .controls-grid .col-span-2 { grid-column: span 2 / span 2; }
+    .controls-grid .col-span-3 { grid-column: span 3 / span 3; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } .controls-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Better Console Demo</h1>
+    <div class="chips">
+      <span class="chip">URL: <span class="mono">?bcLevel=info&bcNs=app:*</span></span>
+      <span class="chip">localStorage keys: <span class="mono">betterConsole.*</span></span>
+    </div>
+  </header>
+  <div class="container">
+    <div class="panel">
+      <h2>Status</h2>
+      <div class="status">
+        <span class="badge" id="installed">…</span>
+        <span class="badge">level: <span id="curLevel">–</span></span>
+        <span class="badge">namespaces: <span id="curNs">–</span></span>
+        <span class="badge">colors: <span id="curColors">–</span></span>
+        <span class="badge">buffer: <span id="curBuf">–</span></span>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top: 16px;">
+      <div class="panel">
+        <h2>Configure</h2>
+        <div class="controls-grid">
+          <div>
+            <label>Level</label><br>
+            <select id="levelSelect">
+              <option>trace</option>
+              <option>debug</option>
+              <option selected>log</option>
+              <option>info</option>
+              <option>warn</option>
+              <option>error</option>
+            </select>
+          </div>
+          <div class="col-span-3">
+            <label>Namespaces</label><br>
+            <input id="nsInput" type="text" placeholder="*, app:*, -app:verbose" value="*">
+          </div>
+          <div>
+            <label>Colors</label><br>
+            <input id="colorsToggle" type="checkbox" checked>
+          </div>
+          <div>
+            <label>Overlay</label><br>
+            <input id="overlayToggle" type="checkbox">
+          </div>
+          <div>
+            <label>Buffer size</label><br>
+            <input id="bufferSize" type="number" min="1" max="10000" step="1" value="500">
+          </div>
+        </div>
+        <div class="row" style="margin-top: 12px;">
+          <button id="applyBtn" class="primary">Apply Config</button>
+          <button id="reinstallBtn">Reinstall</button>
+          <button id="restoreBtn">Restore</button>
+          <button id="saveLocalBtn">Save to localStorage</button>
+          <button id="clearLocalBtn">Clear localStorage</button>
+          <button id="clearConsoleBtn">Clear console</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Emit Logs</h2>
+        <div class="row">
+          <label>Namespace</label>
+          <input id="emitNs" type="text" value="demo:ui" style="min-width: 160px;">
+          <label>Message</label>
+          <input id="emitMsg" type="text" value="Hello from demo!" style="flex: 1; min-width: 180px;">
+        </div>
+        <div class="row" style="margin-top: 12px;">
+          <span class="chip">Namespaced</span>
+          <button id="emitNs-trace">Trace</button>
+          <button id="emitNs-debug">Debug</button>
+          <button id="emitNs-log">Log</button>
+          <button id="emitNs-info">Info</button>
+          <button id="emitNs-warn">Warn</button>
+          <button id="emitNs-error">Error</button>
+        </div>
+        <div class="row" style="margin-top: 8px;">
+          <span class="chip">Global console</span>
+          <button id="emitGlobal-trace">Trace</button>
+          <button id="emitGlobal-debug">Debug</button>
+          <button id="emitGlobal-log">Log</button>
+          <button id="emitGlobal-info">Info</button>
+          <button id="emitGlobal-warn">Warn</button>
+          <button id="emitGlobal-error">Error</button>
+        </div>
+        <div class="row" style="margin-top: 8px;">
+          <span class="chip">Group</span>
+          <button id="groupBtn">group</button>
+          <button id="groupCollapsedBtn">groupCollapsed</button>
+          <button id="groupEndBtn">groupEnd</button>
+          <span class="chip">Timer</span>
+          <button id="timeStartBtn">time("demo")</button>
+          <button id="timeEndBtn">timeEnd("demo")</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top: 16px;">
+      <h2>Live Buffer</h2>
+      <div class="row" style="margin-bottom: 8px;">
+        <label><input id="autoRefresh" type="checkbox"> Auto refresh</label>
+        <button id="refreshBufferBtn">Refresh</button>
+        <button id="clearBufferBtn">Clear Buffer</button>
+        <label>Filter level</label>
+        <select id="bufFilterLevel">
+          <option value="all">all</option>
+          <option>trace</option>
+          <option>debug</option>
+          <option>log</option>
+          <option>info</option>
+          <option>warn</option>
+          <option>error</option>
+        </select>
+        <label>Filter ns</label>
+        <input id="bufFilterNs" type="text" placeholder="demo:" style="min-width: 140px;">
+        <span class="chip" id="bufCounts"></span>
+        <span class="fill"></span>
+        <button id="copyBufferBtn">Copy</button>
+        <button id="downloadBufferBtn">Download JSON</button>
+      </div>
+      <div style="max-height: 360px; overflow: auto; border: 1px solid var(--border); border-radius: 8px;">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 110px;">Time</th>
+              <th style="width: 90px;">Level</th>
+              <th style="width: 160px;">Namespace</th>
+              <th>Preview</th>
+            </tr>
+          </thead>
+          <tbody id="bufferBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top: 16px;">
+      <h2>Traffic Generator</h2>
+      <div class="row">
+        <label><input id="genToggle" type="checkbox"> Generate logs</label>
+        <label>Rate (per second)</label>
+        <input id="genRate" type="number" min="1" max="60" value="5" style="width: 80px;">
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top: 16px;">
+      <h2>HTTP Transport</h2>
+      <div class="row">
+        <label><input id="httpEnable" type="checkbox"> Enable</label>
+        <label>URL</label>
+        <input id="httpUrl" type="text" placeholder="https://example.com/logs" style="min-width: 280px;">
+        <label><input id="httpBatch" type="checkbox"> Batch</label>
+        <label>Interval (ms)</label>
+        <input id="httpInterval" type="number" min="100" step="100" value="2000" style="width: 100px;">
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top: 16px;">
+      <h2>Advanced Controls</h2>
+      <div class="row">
+        <button id="pauseBtn">Pause</button>
+        <button id="resumeBtn">Resume</button>
+        <button id="onceBtn">Once("hello")</button>
+        <button id="assertBtn">console.assert(false, 'should show')</button>
+        <button id="tableBtn">console.table([{a:1},{a:2}])</button>
+        <span class="fill"></span>
+        <button id="exportBufBtn">Export Buffer</button>
+        <input id="importBufInput" type="file" accept="application/json">
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top: 16px;">
+      <h2>Notes</h2>
+      <ul>
+        <li>Toggle levels and namespaces to filter what gets emitted.</li>
+        <li>Use URL parameters like <span class="mono">?bcLevel=info&amp;bcNs=demo:*</span> then reload.</li>
+        <li>Use localStorage to persist: keys <span class="mono">betterConsole.*</span>.</li>
+      </ul>
+    </div>
+  </div>
+</body>
+</html>
+
+
